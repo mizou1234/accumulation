@@ -195,7 +195,7 @@ impl<T: Trait> Module<T>{
                     break;
              	}	             	
              }
-        <AskLedger<T>>::put(askledger);//这里改了！！！！1
+        <AskLedger<T>>::put(askledger);
 		Ok(())
     }
 
@@ -263,9 +263,7 @@ impl<T: Trait> Module<T>{
             temp=i;
             bidledger[i].amount=_amount;
             break;
-			}
-// 			bidledger[i].amount=_amount;
-			
+			}			
 		}
 		<BidLedger<T>>::put(bidledger);
 		temp
@@ -281,7 +279,6 @@ impl<T: Trait> Module<T>{
 			if bidledger[bid_index].amount<=askledger[ask_index].amount {
 				let payamount1 = askledger[ask_index].price*<T::Balance as As<u64>>::sa(bidledger[bid_index].amount);//payamount指交易额
                 <balances::Module<T> as Currency<_>>::transfer(&_buyerid, &_sellerid, payamount1);//use the transfer fn
-//                 <BidLedger<T>>::put(bidledger.clone());
                 askledger[ask_index].amount -= bidledger[bid_index].amount;
                 Self::buy_deleteLimit(_buyerid);
                 break;
@@ -291,9 +288,6 @@ impl<T: Trait> Module<T>{
                 <balances::Module<T> as Currency<_>>::transfer(&_buyerid, &_sellerid, payamount2)?;//use the transfer fn
                 bidledger[bid_index].amount-=askledger[ask_index].amount;
                 askledger[ask_index].amount=0;
-//                 <BidLedger<T>>::put(bidledger);
-//                 Self::sell_deleteLimit(_sellerid);不要
-
                 ask_index-=1;
 			}
 		}
@@ -303,8 +297,6 @@ impl<T: Trait> Module<T>{
          	}	             	
          }
 		<AskLedger<T>>::put(askledger);
-// 		Self::buy_deleteLimit(_buyerid);
-// 		<BidLedger<T>>::put(bidledger);
 		Ok(())
 	}
 		

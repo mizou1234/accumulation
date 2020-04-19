@@ -1,3 +1,5 @@
+*.rs linguist-language=rust
+
 use support::{decl_module, decl_storage, decl_event, StorageMap, dispatch::Result,ensure,StorageValue,traits::Currency};
 use system::ensure_signed;
 use runtime_primitives::traits::{As, Hash};

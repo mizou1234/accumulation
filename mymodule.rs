@@ -5,7 +5,7 @@ use parity_codec::{Encode, Decode};
 use rstd::vec::Vec;
 
 
-//定义结构体,hash用来存放用户名称和地址BU
+//定义结构体,hash用来存放用户id
 #[derive(Encode, Decode, Default, Clone, PartialEq)]
 #[cfg_attr(feature = "std", derive(Debug))]
 pub struct Buyer<Hash, Balance> {

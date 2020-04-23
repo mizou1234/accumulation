@@ -1,5 +1,3 @@
-*.rs linguist-language=rust
-
 use support::{decl_module, decl_storage, decl_event, StorageMap, dispatch::Result,ensure,StorageValue,traits::Currency};
 use system::ensure_signed;
 use runtime_primitives::traits::{As, Hash};
@@ -7,7 +5,7 @@ use parity_codec::{Encode, Decode};
 use rstd::vec::Vec;
 
 
-//定义结构体,hash用来存放用户id
+//定义结构体,hash用来存放用户名称和地址BU
 #[derive(Encode, Decode, Default, Clone, PartialEq)]
 #[cfg_attr(feature = "std", derive(Debug))]
 pub struct Buyer<Hash, Balance> {
@@ -47,63 +45,18 @@ decl_storage! {
 decl_module! {
 	/// The module declaration.
 	pub struct Module<T: Trait> for enum Call where origin: T::Origin {
-		//初始化buyer模块
-		pub fn initial_buyer(origin,buyer_price:T::Balance,buyer_amount:u64) -> Result {
+		//买家参与限价交易
+		pub fn buy_limitOrder(origin,buyer_price:T::Balance,buyer_amount:u64) -> Result {
 			let sender = ensure_signed(origin)?;
-			let new_buyer = Buyer{
-				id: <T as system::Trait>::Hashing::hash_of(&sender),
-                price: buyer_price,
-                amount: buyer_amount,
-			};
-            
-            let mut bidledger=Self::bidledger();
-            if bidledger.iter().len()>0{
-
-             	let mut flag=0;
-	            for i in 0..bidledger.iter().len(){
- 	            	if bidledger[i].price>buyer_price{
-	            		flag=1;
-	                    bidledger.insert(i,new_buyer.clone());
-                       break;
-	             	}	             	
-	            }
- 	            if flag==0 {bidledger.push(new_buyer.clone());}
-	         }else{
-	         	    bidledger.push(new_buyer.clone());
-	         }
-            <BidLedger<T>>::put(bidledger);
-			<Buyers<T>>::insert(&sender,new_buyer.clone());
-			<BuyersArray<T>>::insert(new_buyer.clone(),&sender);
-			
+			let id = <T as system::Trait>::Hashing::hash_of(&sender);
+			Self::submit_buyer(sender,id,buyer_price,buyer_amount);	
 			Ok(())
 		}
-		//初始化seller
-		pub fn initial_seller(origin,seller_price:T::Balance,seller_amount:u64) -> Result {
+		//卖家参与限价交易
+		pub fn sell_limitOrder(origin,seller_price:T::Balance,seller_amount:u64) -> Result {
 			let sender = ensure_signed(origin)?;
-			let new_seller = Seller{
-				id: <T as system::Trait>::Hashing::hash_of(&sender),
-                price: seller_price,
-                amount: seller_amount,
-			};
-            
-            let mut askledger=Self::askledger();
-            if askledger.iter().len()>0{
-
-             	let mut flag=0;
-	            for i in 0..askledger.iter().len(){
- 	            	if askledger[i].price<seller_price{
-	            		flag=1;
-	                    askledger.insert(i,new_seller.clone());
-                       break;
-	             	}	             	
-	            }
- 	            if flag==0 {askledger.push(new_seller.clone());}
-	         }else{
-	         	    askledger.push(new_seller.clone());
-	         }
-            <AskLedger<T>>::put(askledger);
-			<Sellers<T>>::insert(&sender,new_seller.clone());
-			<SellersArray<T>>::insert(new_seller.clone(),&sender);
+			let id = <T as system::Trait>::Hashing::hash_of(&sender);
+			Self::submit_seller(sender,id,seller_price,seller_amount);
 			Ok(())
 		}
 		
@@ -120,7 +73,7 @@ decl_module! {
 	    	Ok(())
 	    }	    
 
-        //买家限价订单
+        //买家修改限价订单
         pub fn buy_changeLimit(origin,buyer_id:T::Hash,buyer_price:T::Balance,buyer_amount:u64) -> Result{
         	let sender = ensure_signed(origin)?;
         	let new_change_buyer = Buyer{
@@ -128,11 +81,11 @@ decl_module! {
 	            price: buyer_price,
 	            amount: buyer_amount,
 			};
-        	Self::buy_deleteLimit(sender);
-        	Self::submit_buyer(buyer_id,buyer_price,buyer_amount);
+        	Self::buy_deleteLimit(sender.clone());
+        	Self::submit_buyer(sender,buyer_id,buyer_price,buyer_amount);
         	Ok(())
         }
-        //卖家限价订单
+        //卖家修改限价订单
         pub fn sell_changeLimit(origin,seller_id:T::Hash,seller_price:T::Balance,seller_amount:u64) -> Result{
         	let sender = ensure_signed(origin)?;
          	let new_change_seller = Seller{
@@ -140,19 +93,75 @@ decl_module! {
 	            price: seller_price,
 	            amount: seller_amount,
 			}; 
-        	Self::sell_deleteLimit(sender);
-        	Self::submit_seller(seller_id,seller_price,seller_amount);
+        	Self::sell_deleteLimit(sender.clone());
+        	Self::submit_seller(sender,seller_id,seller_price,seller_amount);
         	Ok(())
         }
         
-        //买家市价交易
-        pub fn Buy_marketorder(origin,_amount:u64) ->Result{
-        	let sender = ensure_signed(origin)?;
-        	let index=Self::buyamount(sender,_amount);
-        	Self::MatchForBuyer(index);
+        //买家参与市价交易，并出清
+        pub fn buy_marketOrder(origin,buyer_amount:u64) ->Result{
+			let sender = ensure_signed(origin)?;
+			let mut _amount = buyer_amount;
+			let mut askledger=Self::askledger();
+			let mut ask_index=askledger.iter().len()-1;
+			while ask_index>=0 && _amount != 0 {
+				let mut _sellerid=Self::sellerid(askledger[ask_index].clone());
+				if _amount<askledger[ask_index].amount {
+					let mut payamount1 = askledger[ask_index].price*<T::Balance as As<u64>>::sa(_amount);//payamount指交易额
+					<balances::Module<T> as Currency<_>>::transfer(&sender, &mut _sellerid, payamount1)?;//use the transfer fn
+					askledger[ask_index].amount -= _amount;
+					Self::submit_seller(_sellerid,askledger[ask_index].id,askledger[ask_index].price,askledger[ask_index].amount);
+					break;
+				}
+				if _amount>=askledger[ask_index].amount {
+					let mut payamount2 = askledger[ask_index].price*<T::Balance as As<u64>>::sa(_amount);//payamount指交易额
+					<balances::Module<T> as Currency<_>>::transfer(&sender, &mut _sellerid, payamount2)?;//use the transfer fn
+					_amount-=askledger[ask_index].amount;
+					askledger[ask_index].amount=0;
+					ask_index-=1;
+				}
+			}
+			for i in 0..askledger.iter().len(){
+					if askledger[i].amount==0{
+					askledger.remove(i);
+				}	             	
+			}
+			<AskLedger<T>>::put(askledger);
+			
         	Ok(())
         }
-		
+		//卖家参与市价交易，并出清
+		pub fn sell_marketOrder(origin,seller_amount:u64) ->Result{
+			let sender = ensure_signed(origin)?;
+			let mut _amount = seller_amount;
+			let mut bidledger=Self::bidledger();
+			let mut bid_index=bidledger.iter().len()-1;
+			while bid_index>=0 && _amount != 0 {
+				let mut _buyerid=Self::buyerid(bidledger[bid_index].clone());
+				if _amount<bidledger[bid_index].amount {
+					let mut payamount1 = bidledger[bid_index].price*<T::Balance as As<u64>>::sa(_amount);//payamount指交易额
+					<balances::Module<T> as Currency<_>>::transfer(&sender, &mut _buyerid, payamount1)?;//use the transfer fn
+					bidledger[bid_index].amount -= _amount;
+					Self::submit_buyer(_buyerid,bidledger[bid_index].id,bidledger[bid_index].price,bidledger[bid_index].amount);
+					break;
+				}
+				if _amount>=bidledger[bid_index].amount {
+					let mut payamount2 = bidledger[bid_index].price*<T::Balance as As<u64>>::sa(_amount);//payamount指交易额
+					<balances::Module<T> as Currency<_>>::transfer(&sender, &mut _buyerid, payamount2)?;//use the transfer fn
+					_amount-=bidledger[bid_index].amount;
+					bidledger[bid_index].amount=0;
+					bid_index-=1;
+				}
+			}
+			for i in 0..bidledger.iter().len(){
+					if bidledger[i].amount==0{
+					bidledger.remove(i);
+				}	             	
+			}
+			<BidLedger<T>>::put(bidledger);
+			
+			Ok(())
+		}
 		// Initializing events
 		// this is needed only if you are using events in your module
 		fn deposit_event<T>() = default;
@@ -162,13 +171,13 @@ decl_module! {
 
 impl<T: Trait> Module<T>{
    //获得bid队列最优报价 不知道impl里的函数用户可以调用吗
-	pub fn getbid() ->T::Balance{
+	pub fn bid_revealPrice() ->T::Balance{
 		let bidledger=Self::bidledger();
 		let length=bidledger.iter().len();
 		bidledger[length].price
 	}
 	//获得ask队列最优报价
-	pub fn getask() ->T::Balance{
+	pub fn ask_revealPrice() ->T::Balance{
 		let askledger=Self::askledger();
 		let length=askledger.iter().len();
 		askledger[length].price
@@ -177,21 +186,22 @@ impl<T: Trait> Module<T>{
     pub fn buy_deleteLimit(from:T::AccountId) ->Result{
     	let mut bidledger=Self::bidledger();
             for i in 0..bidledger.iter().len(){
-            	    let _buyerid=Self::buyerid(bidledger[i].clone());
-	            	if _buyerid==from{
+            	    let mut sender=Self::buyerid(bidledger[i].clone());
+	            	if sender==from{
                     bidledger.remove(i);
                    break;
              	}	             	
              }
         <BidLedger<T>>::put(bidledger);
-        
+		// <Buyers<T>>::pop(&from);
+		// <BuyersArray<T>>::pop(&from);
 		Ok(())
     }
     //卖家撤单函数
     pub fn sell_deleteLimit(from:T::AccountId) ->Result{
     	let mut askledger=Self::askledger();
             for i in 0..askledger.iter().len(){
-            	    let _sellerid=Self::sellerid(askledger[i].clone());
+            	    let mut _sellerid=Self::sellerid(askledger[i].clone());
 	            	if _sellerid==from{
                     askledger.remove(i);
                     break;
@@ -201,8 +211,8 @@ impl<T: Trait> Module<T>{
 		Ok(())
     }
 
-    //买家修改报价
-	pub fn submit_buyer(buyer_id:T::Hash,buyer_price:T::Balance,buyer_amount:u64) -> Result {
+    //提交买家信息    
+	pub fn submit_buyer(from:T::AccountId,buyer_id:T::Hash,buyer_price:T::Balance,buyer_amount:u64) -> Result {
 		let new_buyer = Buyer{
 			id: buyer_id,
             price: buyer_price,
@@ -224,12 +234,14 @@ impl<T: Trait> Module<T>{
          }else{
          	    bidledger.push(new_buyer.clone());
          }
-        <BidLedger<T>>::put(bidledger);
+		<BidLedger<T>>::put(bidledger);
+		<Buyers<T>>::insert(&from,new_buyer.clone());
+		<BuyersArray<T>>::insert(new_buyer.clone(),&from);
 	
 		Ok(())
 	}		
-	//卖家修改报价
-    pub fn submit_seller(seller_id:T::Hash,seller_price:T::Balance,seller_amount:u64) -> Result {
+	//提交卖家信息
+    pub fn submit_seller(from:T::AccountId,seller_id:T::Hash,seller_price:T::Balance,seller_amount:u64) -> Result {
 		let new_seller = Seller{
 			id: seller_id,
             price: seller_price,
@@ -251,56 +263,13 @@ impl<T: Trait> Module<T>{
          }else{
          	    askledger.push(new_seller.clone());
          }
-        <AskLedger<T>>::put(askledger);
+		<AskLedger<T>>::put(askledger);
+		<Sellers<T>>::insert(&from,new_seller.clone());
+		<SellersArray<T>>::insert(new_seller.clone(),&from);
 		Ok(())
 	}
 	
-	//买家修改交易量
-	pub fn buyamount(from:T::AccountId,_amount:u64) ->usize{
-		let mut bidledger=Self::bidledger();
-		let mut temp:usize=0;
-		for i in 0..bidledger.iter().len(){
-			let _buyerid=Self::buyerid(bidledger[i].clone());
-        	if _buyerid==from{
-            temp=i;
-            bidledger[i].amount=_amount;
-            break;
-			}			
-		}
-		<BidLedger<T>>::put(bidledger);
-		temp
-	}
-	//为买家匹配，可以重新提交愿意交易的量
-	pub fn MatchForBuyer(bid_index:usize) ->Result{
-		let mut bidledger=Self::bidledger();
-		let mut askledger=Self::askledger();
-		let _buyerid=Self::buyerid(bidledger[bid_index].clone());
-		let mut ask_index=askledger.iter().len()-1;
-		while ask_index>=0 && bidledger[bid_index].amount != 0 {
-			let mut _sellerid=Self::sellerid(askledger[ask_index].clone());
-			if bidledger[bid_index].amount<=askledger[ask_index].amount {
-				let payamount1 = askledger[ask_index].price*<T::Balance as As<u64>>::sa(bidledger[bid_index].amount);//payamount指交易额
-                <balances::Module<T> as Currency<_>>::transfer(&_buyerid, &_sellerid, payamount1);//use the transfer fn
-                askledger[ask_index].amount -= bidledger[bid_index].amount;
-                Self::buy_deleteLimit(_buyerid);
-                break;
-			}
-			if bidledger[bid_index].amount>askledger[ask_index].amount {
-				let payamount2 = askledger[ask_index].price*<T::Balance as As<u64>>::sa(bidledger[bid_index].amount);//payamount指交易额
-                <balances::Module<T> as Currency<_>>::transfer(&_buyerid, &_sellerid, payamount2)?;//use the transfer fn
-                bidledger[bid_index].amount-=askledger[ask_index].amount;
-                askledger[ask_index].amount=0;
-                ask_index-=1;
-			}
-		}
-		for i in 0..askledger.iter().len(){
-            	if askledger[i].amount==0{
-                askledger.remove(i);
-         	}	             	
-         }
-		<AskLedger<T>>::put(askledger);
-		Ok(())
-	}
+	
 		
 }
 
